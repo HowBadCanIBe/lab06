@@ -1,0 +1,127 @@
+name: Build
+run-name: ${{ github.actor }} compiling based on CMakeLists.txt
+on: [push]
+jobs:
+  compile_on_ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build Tests
+        run: |
+          cmake -H. -B_build -DBUILD_TESTS=ON -DBUILD_COVERAGE=ON
+          cmake --build _build
+          cmake --build _build --target test -- ARGS=--verbose
+      - name: Generate and send a code coverage report to Coveralls
+        uses: threeal/gcovr-action@v1.0.0
+        with:
+          excludes: third-party
+          coveralls-send: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+  make_artifacts:
+    if: startsWith( ${{ github.event.ref }} , '/refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build Tests
+        run: |
+          cmake -H. -B_build -DBUILD_TESTS=ON -DBUILD_COVERAGE=ON
+          cmake --build _build
+          cmake --build _build --target test -- ARGS=--verbose
+      - name: Make CPack artifacts
+        run: |
+          cd _build
+          cpack -G "TGZ"
+          cpack -G "DEB"
+          cpack -G "RPM"
+          cd ..
+      - name: Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux_artifacts
+          path: _build/banking_app-*
+  make_windows_artifacts:
+    if: startsWith( ${{ github.event.ref }} , '/refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build Tests
+        run: |
+          cmake -S D:/a/lab06/lab06 -B D:/a/lab06/lab06/_build
+          cmake --build _build
+      - name: Make CPack artifacts
+        run: |
+          cd _build
+          cpack -G "ZIP"
+          cpack -G "NSIS"
+          cd ..
+      - name: Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows_artifacts
+          path: _build/banking_app-*
+
+  make_macos_artifacts:
+    if: startsWith( ${{ github.event.ref }} , '/refs/tags/v')
+    runs-on: macos-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build Tests
+        run: |
+          cmake -H. -B_build -DBUILD_TESTS=ON -DBUILD_COVERAGE=OFF
+          cmake --build _build
+          cmake --build _build --target test -- ARGS=--verbose
+      - name: Make CPack artifacts
+        run: |
+          cd _build
+          cpack -G "TGZ"
+          cpack -G "DragNDrop"
+          cd ..
+      - name: Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos_artifacts
+          path: _build/banking_app-*
+
+  create_release:
+    if: startsWith( ${{ github.event.ref }} , '/refs/tags/v')
+    needs: [make_artifacts, make_windows_artifacts, make_macos_artifacts]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux_artifacts
+          path: ./artifacts/linux/
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows_artifacts
+          path: ./artifacts/windows/
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos_artifacts
+          path: ./artifacts/macos/
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ./artifacts/linux/*
+            ./artifacts/windows/*
+            ./artifacts/macos/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
